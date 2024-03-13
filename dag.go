@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 )
 
 type Link struct {
@@ -67,7 +68,7 @@ func storeDirectory(store KVStore, dir Node) *Object {
 		switch n.Type() {
 		case FILE:
 			file := n.(File)
-			tmp := storeFile(store, file)
+			tmp := storeFile(store, file.Bytes())
 			jsonMarshal, _ := json.Marshal(tmp)
 			hash := calculateHash(jsonMarshal)
 			links = append(links, Link{
@@ -104,8 +105,8 @@ func splitFile(file []byte) [][]byte {
 	return chunks
 }
 
-func dfsForStoreFile(hight int, file File, store KVStore, seedId int, h *sha256.Hash) (*Object, int) {
-	if hight == 1 {
+func dfsForStoreFile(height int, file File, store KVStore, seedId int, h *sha256.Hash) (*Object, int) {
+	if height == 1 {
 		if (len(file.Bytes()) - seedId) <= 256*1024 {
 			data := file.Bytes()[seedId:] //截取从seedId到最后
 			blob := Object{Data: data, Links: nil}
@@ -148,7 +149,7 @@ func dfsForStoreFile(hight int, file File, store KVStore, seedId int, h *sha256.
 			if seedId >= len(file.Bytes()) {
 				break
 			}
-			tmp, lens := dfsForStoreFile(hight-1, file, store, seedId, h)
+			tmp, lens := dfsForStoreFile(height-1, file, store, seedId, h)
 			lenData += lens
 			jsonMarshal, _ := json.Marshal(tmp)
 			hash := calculateHash(jsonMarshal)
@@ -166,5 +167,33 @@ func dfsForStoreFile(hight int, file File, store KVStore, seedId int, h *sha256.
 		hash := calculateHash(jsonMarshal)
 		store.Put(hex.EncodeToString(hash), links)
 		return links, lenData
+	}
+}
+
+func Add(store KVStore, node Node) []byte {
+	h := sha256.New()
+	if node.Type() == FILE {
+		file := node.(File)
+		if len(file.Bytes()) <= 256*1024 {
+			// If the file is smaller than 256KB, store it directly
+			blob := storeFile(store, file.Bytes())
+			hash := calculateHash(blob.Data)
+			return hash
+		} else {
+			// If the file is larger than 256KB, split it into chunks and store each chunk
+			linkLen := (len(file.Bytes()) + (256*1024 - 1)) / (256 * 1024)
+			height := int(math.Ceil(math.Log2(float64(linkLen)) / math.Log2(4096)))
+			tmp, _ := dfsForStoreFile(height, file, store, 0, h)
+			jsonMarshal, _ := json.Marshal(tmp)
+			hash := calculateHash(jsonMarshal)
+			return hash
+		}
+	} else {
+		// If the node is a directory, store it
+		dir := node.(Dir)
+		tmp := storeDirectory(store, dir)
+		jsonMarshal, _ := json.Marshal(tmp)
+		hash := calculateHash(jsonMarshal)
+		return hash
 	}
 }
