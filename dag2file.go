@@ -14,6 +14,7 @@ func Hash2File(store KVStore, hash []byte, path string, hp HashPool) []byte {
 	return data
 }
 
+// 递归地从链接的对象中检索数据（深度优先遍历）。
 func getDfsData(store KVStore, object Object, data []byte) []byte {
 	for _, link := range object.Links {
 		obj := getObjectByHash(store, link.Hash)
